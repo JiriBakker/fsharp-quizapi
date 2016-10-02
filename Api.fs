@@ -10,9 +10,24 @@ open Suave.Successful
 open Models
 open Newtonsoft.Json
 
+type QuestionResponse = { 
+    Id               : int;
+    Text             : string;
+    Answers          : IDictionary<string, string>
+} 
+    
+
 let private toJsonOk result =
-    OK (JsonConvert.SerializeObject result)
-    >=> Writers.setMimeType "application/json; charset=utf-8"
+    Writers.setMimeType "application/json; charset=utf-8"
+    >=> Writers.addHeader "Access-Control-Allow-Origin" "*"
+    >=> OK (JsonConvert.SerializeObject result)
+
+let private mapToQuestionResponse (question:Question) =
+    { 
+        Id               = question.Id;
+        Text             = question.Text;
+        Answers          = question.Answers
+    } 
 
 let app (questions:IDictionary<int,Question>) =
     let getRandomQuestion() =
@@ -21,17 +36,27 @@ let app (questions:IDictionary<int,Question>) =
         let randNum = rand.Next(0, questions.Count)
         let randKey = questions.Keys.ToList().[randNum]
         questions.[randKey]
+        |> mapToQuestionResponse
 
     let getSpecificQuestion id =
         // TODO JB wat als question met 'id' niet bestaat?
         questions.[id]
+        |> mapToQuestionResponse
+
+    let checkAnswer questionId answerKey =
+        let question = questions.[questionId]
+        {
+            QuestionId       = questionId;
+            AnswerKey        = answerKey;
+            CorrectAnswerKey = question.CorrectAnswerKey;
+            IsCorrect        = question.CorrectAnswerKey.ToLowerInvariant().Equals(answerKey.ToLowerInvariant())
+        }
     
     choose [ 
         GET >=> choose 
             [ path "/question/random" >=> (fun (httpContext) -> toJsonOk (getRandomQuestion()) httpContext) ;
-              pathScan "/question/%d"     (fun (questionId)  -> toJsonOk (getSpecificQuestion questionId)) ];
-        POST >=> choose
-            [ pathScan "/answer/%d/%s"    (fun (questionId, answerKey) -> OK ("answer " + answerKey)) ] 
+              pathScan "/question/%d"     (fun (questionId)  -> toJsonOk (getSpecificQuestion questionId)) ;
+              pathScan "/answer/%d/%s"    (fun (questionId, answerKey) -> toJsonOk (checkAnswer questionId answerKey)) ] 
     ]
 
 [<EntryPoint>]
